@@ -1,0 +1,3 @@
+_media/
+cmake-build-*/
+.git/

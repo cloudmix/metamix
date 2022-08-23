@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+show_help() {
+  echo "Usage: fbremix [options] INPUT OUTPUT"
+  echo "Transcodes input for publishing to Facebook Live, properly preserving closed captions and metadata."
+  echo "Input and output streams/files must be FLV-based."
+  echo ""
+  echo "  -M  set path to metamix executable, overriding METAMIX environment variable"
+  echo "  -F  set path to ffmpeg executable, overriding FFMPEG environment variable"
+  echo "  -P  change directory where FBremix will place child processes PIDs, defaults to /tmp"
+  echo "  -h  display this help and exit"
+  echo "  -v  output version information and exit"
+  echo ""
+}
+
+show_version() {
+  echo "FBremix, part of Metamix"
+  (command -v "$METAMIX" 1>/dev/null) && echo "" && exec "$METAMIX" -v
+}
+
+PID_DIR="/tmp"
+
+while getopts "h?v?M:F:P:" opt; do
+  case "$opt" in
+  h|\?)
+    show_help
+    exit 0
+    ;;
+  v)
+    show_version
+    exit 0
+    ;;
+  M) METAMIX=$OPTARG ;;
+  F) FFMPEG=$OPTARG ;;
+  P) PID_DIR=$OPTARG ;;
+  esac
+done
+
+shift $((OPTIND-1))
+
+if [ "$#" -lt 2 ]; then
+    echo "Missing INPUT and/or OUTPUT parameters."
+    exit 1
+fi
+
+METAMIX=${METAMIX:-$(command -v metamix)}
+: ${METAMIX:?Cannot find metamix executable.}
+
+FFMPEG=${FFMPEG:-$(command -v ffmpeg)}
+: ${FFMPEG:?Cannot find ffmpeg executable.}
+
+METAMIX_PID="${PID_DIR}/fbremix$$-metamix.pid"
+FFMPEG_PID="${PID_DIR}/fbremix$$-ffmpeg.pid"
+
+INSTREAM="/tmp/fbremix$$-instream.sock"
+OUTSTREAM="/tmp/fbremix$$-outstream.sock"
+
+exec "$FFMPEG" -y -nostdin \
+               -listen 1 -i "unix://${INSTREAM}" \
+               -c:v libx264 -maxrate 4M -bufsize 8M -x264-params keyint=60:scenecut=0:bframes=0:fps=30 \
+               -c:a copy \
+               -f flv -listen 1 "unix://${OUTSTREAM}" &
+echo "$!" >"$FFMPEG_PID"
+
+sleep 2
+
+exec "$METAMIX" --input.x.source="$1" --input.x.sourceformat=flv \
+                --input.x.sink="unix://${INSTREAM}" --input.x.sinkformat=flv \
+                --output.source="unix://${OUTSTREAM}" --output.sourceformat=flv \
+                --output.sink="$2" --output.sinkformat=flv \
+                --starting-input=x
+echo "$!" >"$METAMIX_PID"
+
+wait

@@ -1,0 +1,6 @@
+#pragma once
+
+#define METAMIX_VERSION_MAJOR @metamix_VERSION_MAJOR@
+#define METAMIX_VERSION_MINOR @metamix_VERSION_MINOR@
+#define METAMIX_VERSION_PATCH @metamix_VERSION_PATCH@
+#define METAMIX_VERSION_STRING "@metamix_VERSION@"

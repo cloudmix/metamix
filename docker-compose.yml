@@ -1,0 +1,113 @@
+version: '3'
+
+services:
+  rtmp:
+    image: tiangolo/nginx-rtmp:latest
+    ports:
+      - '1935:1935'
+    restart: unless-stopped
+
+  metamix:
+    build: .
+    depends_on:
+      - rtmp
+    command: >
+      metamix
+        --input.food.source=rtmp://rtmp/live/insrc1
+        --input.food.sourceformat=flv
+        --input.food.sink=rtmp://rtmp/live/insink1
+        --input.food.sinkformat=flv
+
+        --input.bipbop.source=rtmp://rtmp/live/insrc2
+        --input.bipbop.sourceformat=flv
+        --input.bipbop.sink=rtmp://rtmp/live/insink2
+        --input.bipbop.sinkformat=flv
+
+        --input.tears.source=rtmp://rtmp/live/insrc3
+        --input.tears.sourceformat=flv
+        --input.tears.sink=rtmp://rtmp/live/insink3
+        --input.tears.sinkformat=flv
+
+        --output.source=rtmp://rtmp/live/outsrc
+        --output.sourceformat=flv
+        --output.sink=rtmp://rtmp/live/outsink
+        --output.sinkformat=flv
+
+        --starting-input=food
+        --log=debug
+    ports:
+      - "3445:3445"
+
+  food:
+    image: jrottenberg/ffmpeg:4.0
+    depends_on:
+      - rtmp
+    command: >
+      -y
+      -re -fflags +genpts -stream_loop 100
+      -i /opt/media/FOOD.flv
+      -max_muxing_queue_size 1000 -c:v h264 -maxrate 4M -bufsize 8M -bf 0 -g 30 -c:a aac
+      -f flv rtmp://rtmp/live/insrc1
+    volumes:
+      - ./_media:/opt/media:ro
+    restart: unless-stopped
+
+  bipbop:
+    image: jrottenberg/ffmpeg:4.0
+    depends_on:
+      - rtmp
+    command: >
+      -y
+      -re -fflags +genpts -stream_loop 1000
+      -i /opt/media/fileSequence97.flv
+      -max_muxing_queue_size 1000 -c:v h264 -maxrate 4M -bufsize 8M -bf 0 -g 30 -c:a aac
+      -f flv rtmp://rtmp/live/insrc2
+    volumes:
+      - ./_media:/opt/media:ro
+    restart: unless-stopped
+
+  tears:
+    image: jrottenberg/ffmpeg:4.0
+    depends_on:
+      - rtmp
+    command: >
+      -y
+      -re -fflags +genpts -stream_loop 1000
+      -i /opt/media/tears-of-steel.flv
+      -max_muxing_queue_size 1000 -c:v h264 -maxrate 4M -bufsize 8M -bf 0 -g 30 -c:a aac
+      -f flv rtmp://rtmp/live/insrc3
+    volumes:
+      - ./_media:/opt/media:ro
+    restart: unless-stopped
+
+  output:
+    image: jrottenberg/ffmpeg:4.0
+    depends_on:
+      - rtmp
+    command: >
+      -y
+      -re -fflags +genpts
+      -r 30 -i rtmp://rtmp/live/insink1
+      -r 30 -i rtmp://rtmp/live/insink2
+      -f lavfi -i testsrc=r=30:s=qntsc
+      -r 30 -i rtmp://rtmp/live/insink3
+      -max_muxing_queue_size 4000
+      -filter_complex "[0:v]scale=qntsc[i0];
+                       [1:v]scale=qntsc[i1];
+                       [2:v]scale=qntsc[i2];
+                       [3:v]scale=qntsc[i3];
+                       [i0][i1]hstack=inputs=2[top];
+                       [i2][i3]hstack=inputs=2[bottom];
+                       [top][bottom]vstack=inputs=2[o];
+                       [o]drawtext=fontfile=/docs/digits.ttf:timecode='00\:00\:00\;00':r=30
+                                  :x=2*lh:y=h-(2*lh):fontcolor=White:fontsize=24
+                                  :box=1:boxborderw=5:boxcolor=Black@0.85[out]"
+      -map "[out]" -map 0:a?
+      -c:v h264 -preset slow -bf 0 -maxrate 200k -bufsize 16M -g 60
+      -c:a aac
+      -f flv rtmp://rtmp/live/outsrc
+    volumes:
+      - ./docs:/docs:ro
+    ports:
+      - "7771:7771"
+    restart: unless-stopped
